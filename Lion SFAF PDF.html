@@ -5597,6 +5597,33 @@
           });
       }
 
+      function getReaderFieldsInTabOrder(annotations) {
+        const rowTolerance = 10;
+        const rows = [];
+
+        [...annotations]
+          .sort((a, b) => a.y - b.y || a.x - b.x)
+          .forEach((ann) => {
+            const lastRow = rows[rows.length - 1];
+            const tolerance = Math.max(
+              rowTolerance,
+              Math.min(ann.height || rowTolerance, lastRow?.height || rowTolerance) * 0.6,
+            );
+
+            if (lastRow && Math.abs(ann.y - lastRow.y) <= tolerance) {
+              lastRow.items.push(ann);
+              lastRow.y =
+                lastRow.items.reduce((sum, item) => sum + item.y, 0) /
+                lastRow.items.length;
+              lastRow.height = Math.max(lastRow.height, ann.height || 0);
+            } else {
+              rows.push({ y: ann.y, height: ann.height || 0, items: [ann] });
+            }
+          });
+
+        return rows.flatMap((row) => row.items.sort((a, b) => a.x - b.x));
+      }
+
       function renderReaderModeFields() {
         clearReaderFieldsDOM();
         if (currentEdit.fIdx === null || currentEdit.pIdx === null) return;
@@ -5611,7 +5638,9 @@
         const scaleY = rect.height / editorCanvas.height;
 
         if (pageObj.annotations && pageObj.annotations.length > 0) {
-          pageObj.annotations.forEach((ann) => {
+          const annotationsInTabOrder = getReaderFieldsInTabOrder(pageObj.annotations);
+
+          annotationsInTabOrder.forEach((ann, tabIdx) => {
             const isCheckOrSmall =
               ann.checkBox ||
               ann.fieldType === "Btn" ||
@@ -5678,6 +5707,7 @@
                 select.appendChild(o);
               });
 
+              select.tabIndex = tabIdx + 1;
               select.onchange = () => saveReaderFieldsToState();
               field.appendChild(select);
             } else {
@@ -5688,6 +5718,7 @@
                   : document.createElement("input");
 
               if (input.tagName === "INPUT") input.type = "text";
+              input.tabIndex = tabIdx + 1;
               input.value = existingVal;
               input.placeholder = "";
 
