@@ -2624,6 +2624,54 @@
       let currentDropTarget = null;
       let activeTextBox = null;
       let lastSelectedRef = null;
+      let dragAutoScrollAnimation = null;
+      let dragAutoScrollSpeed = 0;
+
+      function stopDragAutoScroll() {
+        dragAutoScrollSpeed = 0;
+        if (dragAutoScrollAnimation !== null) {
+          cancelAnimationFrame(dragAutoScrollAnimation);
+          dragAutoScrollAnimation = null;
+        }
+      }
+
+      function runDragAutoScroll() {
+        if (!dragSource || dragAutoScrollSpeed === 0) {
+          stopDragAutoScroll();
+          return;
+        }
+
+        pagesContainer.scrollTop += dragAutoScrollSpeed;
+        dragAutoScrollAnimation = requestAnimationFrame(runDragAutoScroll);
+      }
+
+      function updateDragAutoScroll(e) {
+        if (!dragSource) {
+          stopDragAutoScroll();
+          return;
+        }
+
+        const rect = pagesContainer.getBoundingClientRect();
+        const edgeSize = Math.min(120, rect.height * 0.25);
+        const maxSpeed = 28;
+        let nextSpeed = 0;
+
+        if (e.clientY < rect.top + edgeSize) {
+          const distance = rect.top + edgeSize - e.clientY;
+          nextSpeed = -Math.ceil((distance / edgeSize) * maxSpeed);
+        } else if (e.clientY > rect.bottom - edgeSize) {
+          const distance = e.clientY - (rect.bottom - edgeSize);
+          nextSpeed = Math.ceil((distance / edgeSize) * maxSpeed);
+        }
+
+        dragAutoScrollSpeed = nextSpeed;
+
+        if (dragAutoScrollSpeed !== 0 && dragAutoScrollAnimation === null) {
+          dragAutoScrollAnimation = requestAnimationFrame(runDragAutoScroll);
+        } else if (dragAutoScrollSpeed === 0) {
+          stopDragAutoScroll();
+        }
+      }
 
       function renderWorkspaceTabs() {
         const tabsBar = document.getElementById("workspace-tabs-bar");
@@ -3864,6 +3912,7 @@
           section.className = "pdf-section";
 
           section.addEventListener("dragover", (e) => {
+            updateDragAutoScroll(e);
             if (dragSource && !e.target.closest(".pdf-strip")) {
               e.preventDefault();
               e.dataTransfer.dropEffect = "move";
@@ -3886,6 +3935,7 @@
           });
 
           section.addEventListener("drop", (e) => {
+            stopDragAutoScroll();
             if (dragSource && !e.target.closest(".pdf-strip")) {
               e.preventDefault();
               section.classList.remove("drag-over-section");
@@ -3957,6 +4007,7 @@
           strip.className = "pdf-strip";
 
           strip.addEventListener("dragover", (e) => {
+            updateDragAutoScroll(e);
             if (!dragSource) return;
             e.preventDefault();
             e.stopPropagation();
@@ -4027,6 +4078,7 @@
           });
 
           strip.addEventListener("drop", (e) => {
+            stopDragAutoScroll();
             if (!dragSource) return;
             e.preventDefault();
             e.stopPropagation();
@@ -4106,6 +4158,7 @@
             });
 
             card.addEventListener("dragend", () => {
+              stopDragAutoScroll();
               card.classList.remove("dragging");
               document.querySelectorAll(".page-card").forEach((c) => {
                 c.classList.remove(
@@ -4404,6 +4457,7 @@
 
       // Permitir soltar en el espacio vacio del contenedor principal para crear una fila al final
       pagesContainer.addEventListener("dragover", (e) => {
+        updateDragAutoScroll(e);
         if (
           dragSource &&
           !e.target.closest(".page-card") &&
@@ -4415,6 +4469,7 @@
       });
 
       pagesContainer.addEventListener("drop", (e) => {
+        stopDragAutoScroll();
         if (
           dragSource &&
           !e.target.closest(".page-card") &&
