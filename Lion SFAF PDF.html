@@ -2624,6 +2624,54 @@
       let currentDropTarget = null;
       let activeTextBox = null;
       let lastSelectedRef = null;
+      let dragAutoScrollAnimation = null;
+      let dragAutoScrollSpeed = 0;
+
+      function stopDragAutoScroll() {
+        dragAutoScrollSpeed = 0;
+        if (dragAutoScrollAnimation !== null) {
+          cancelAnimationFrame(dragAutoScrollAnimation);
+          dragAutoScrollAnimation = null;
+        }
+      }
+
+      function runDragAutoScroll() {
+        if (!dragSource || dragAutoScrollSpeed === 0) {
+          stopDragAutoScroll();
+          return;
+        }
+
+        pagesContainer.scrollTop += dragAutoScrollSpeed;
+        dragAutoScrollAnimation = requestAnimationFrame(runDragAutoScroll);
+      }
+
+      function updateDragAutoScroll(e) {
+        if (!dragSource) {
+          stopDragAutoScroll();
+          return;
+        }
+
+        const rect = pagesContainer.getBoundingClientRect();
+        const edgeSize = Math.min(120, rect.height * 0.25);
+        const maxSpeed = 28;
+        let nextSpeed = 0;
+
+        if (e.clientY < rect.top + edgeSize) {
+          const distance = rect.top + edgeSize - e.clientY;
+          nextSpeed = -Math.ceil((distance / edgeSize) * maxSpeed);
+        } else if (e.clientY > rect.bottom - edgeSize) {
+          const distance = e.clientY - (rect.bottom - edgeSize);
+          nextSpeed = Math.ceil((distance / edgeSize) * maxSpeed);
+        }
+
+        dragAutoScrollSpeed = nextSpeed;
+
+        if (dragAutoScrollSpeed !== 0 && dragAutoScrollAnimation === null) {
+          dragAutoScrollAnimation = requestAnimationFrame(runDragAutoScroll);
+        } else if (dragAutoScrollSpeed === 0) {
+          stopDragAutoScroll();
+        }
+      }
 
       function renderWorkspaceTabs() {
         const tabsBar = document.getElementById("workspace-tabs-bar");
@@ -3864,6 +3912,7 @@
           section.className = "pdf-section";
 
           section.addEventListener("dragover", (e) => {
+            updateDragAutoScroll(e);
             if (dragSource && !e.target.closest(".pdf-strip")) {
               e.preventDefault();
               e.dataTransfer.dropEffect = "move";
@@ -3886,6 +3935,7 @@
           });
 
           section.addEventListener("drop", (e) => {
+            stopDragAutoScroll();
             if (dragSource && !e.target.closest(".pdf-strip")) {
               e.preventDefault();
               section.classList.remove("drag-over-section");
@@ -3957,6 +4007,7 @@
           strip.className = "pdf-strip";
 
           strip.addEventListener("dragover", (e) => {
+            updateDragAutoScroll(e);
             if (!dragSource) return;
             e.preventDefault();
             e.stopPropagation();
@@ -4027,6 +4078,7 @@
           });
 
           strip.addEventListener("drop", (e) => {
+            stopDragAutoScroll();
             if (!dragSource) return;
             e.preventDefault();
             e.stopPropagation();
@@ -4106,6 +4158,7 @@
             });
 
             card.addEventListener("dragend", () => {
+              stopDragAutoScroll();
               card.classList.remove("dragging");
               document.querySelectorAll(".page-card").forEach((c) => {
                 c.classList.remove(
@@ -4404,6 +4457,7 @@
 
       // Permitir soltar en el espacio vacio del contenedor principal para crear una fila al final
       pagesContainer.addEventListener("dragover", (e) => {
+        updateDragAutoScroll(e);
         if (
           dragSource &&
           !e.target.closest(".page-card") &&
@@ -4415,6 +4469,7 @@
       });
 
       pagesContainer.addEventListener("drop", (e) => {
+        stopDragAutoScroll();
         if (
           dragSource &&
           !e.target.closest(".page-card") &&
@@ -5542,6 +5597,33 @@
           });
       }
 
+      function getReaderFieldsInTabOrder(annotations) {
+        const rowTolerance = 10;
+        const rows = [];
+
+        [...annotations]
+          .sort((a, b) => a.y - b.y || a.x - b.x)
+          .forEach((ann) => {
+            const lastRow = rows[rows.length - 1];
+            const tolerance = Math.max(
+              rowTolerance,
+              Math.min(ann.height || rowTolerance, lastRow?.height || rowTolerance) * 0.6,
+            );
+
+            if (lastRow && Math.abs(ann.y - lastRow.y) <= tolerance) {
+              lastRow.items.push(ann);
+              lastRow.y =
+                lastRow.items.reduce((sum, item) => sum + item.y, 0) /
+                lastRow.items.length;
+              lastRow.height = Math.max(lastRow.height, ann.height || 0);
+            } else {
+              rows.push({ y: ann.y, height: ann.height || 0, items: [ann] });
+            }
+          });
+
+        return rows.flatMap((row) => row.items.sort((a, b) => a.x - b.x));
+      }
+
       function renderReaderModeFields() {
         clearReaderFieldsDOM();
         if (currentEdit.fIdx === null || currentEdit.pIdx === null) return;
@@ -5556,7 +5638,9 @@
         const scaleY = rect.height / editorCanvas.height;
 
         if (pageObj.annotations && pageObj.annotations.length > 0) {
-          pageObj.annotations.forEach((ann) => {
+          const annotationsInTabOrder = getReaderFieldsInTabOrder(pageObj.annotations);
+
+          annotationsInTabOrder.forEach((ann, tabIdx) => {
             const isCheckOrSmall =
               ann.checkBox ||
               ann.fieldType === "Btn" ||
@@ -5623,6 +5707,7 @@
                 select.appendChild(o);
               });
 
+              select.tabIndex = tabIdx + 1;
               select.onchange = () => saveReaderFieldsToState();
               field.appendChild(select);
             } else {
@@ -5633,6 +5718,7 @@
                   : document.createElement("input");
 
               if (input.tagName === "INPUT") input.type = "text";
+              input.tabIndex = tabIdx + 1;
               input.value = existingVal;
               input.placeholder = "";
 
