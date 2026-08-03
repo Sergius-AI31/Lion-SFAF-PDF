@@ -5514,6 +5514,34 @@
       }, 100);
 
       let isReaderModeActive = false;
+      let readerModeOriginalState = null;
+
+      function cloneReaderModeState(pageObj) {
+        return {
+          annotations: JSON.parse(JSON.stringify(pageObj.annotations || [])),
+          texts: JSON.parse(JSON.stringify(pageObj.texts || [])),
+        };
+      }
+
+      function restoreReaderModeState() {
+        if (
+          !readerModeOriginalState ||
+          currentEdit.fIdx === null ||
+          currentEdit.pIdx === null
+        ) {
+          return;
+        }
+
+        const pageObj = appFiles[currentEdit.fIdx].pages[currentEdit.pIdx];
+        if (!pageObj) return;
+
+        pageObj.annotations = JSON.parse(
+          JSON.stringify(readerModeOriginalState.annotations || []),
+        );
+        pageObj.texts = JSON.parse(
+          JSON.stringify(readerModeOriginalState.texts || []),
+        );
+      }
 
       function clearReaderFieldsDOM() {
         document
@@ -5732,6 +5760,7 @@
 
                 const toggleCheck = (e) => {
                   if (!isReaderModeActive) return;
+                  e.preventDefault();
                   e.stopPropagation();
                   if (input.value === "" || input.value === " " || input.value === "Off") {
                     input.value = "■";
@@ -5741,6 +5770,11 @@
                   saveReaderFieldsToState();
                 };
 
+                input.addEventListener("keydown", (e) => {
+                  if (e.key === " " || e.code === "Space") {
+                    toggleCheck(e);
+                  }
+                });
                 field.addEventListener("click", toggleCheck);
               } else {
                 input.style.fontSize = domFontSize + "px";
@@ -5809,6 +5843,7 @@
       function openEditor(fIdx, pIdx) {
         currentEdit = { fIdx, pIdx };
         const pageObj = appFiles[fIdx].pages[pIdx];
+        readerModeOriginalState = cloneReaderModeState(pageObj);
 
         clearReaderFieldsDOM();
         isReaderModeActive = false;
@@ -7835,6 +7870,7 @@
         }
         saveDOMTextsToState();
         if (isReaderModeActive) saveReaderFieldsToState();
+        readerModeOriginalState = null;
         clearReaderFieldsDOM();
         isReaderModeActive = false;
         if (isCropToolActive) toggleCropTool(false);
@@ -7852,6 +7888,8 @@
 
       document.getElementById("btn-close-modal").onclick = () => {
         // Se omiten los guardados al estado para que "Cancelar" descarte los cambios visuales
+        restoreReaderModeState();
+        readerModeOriginalState = null;
         clearReaderFieldsDOM();
         isReaderModeActive = false;
         editorModal.style.display = "none";
