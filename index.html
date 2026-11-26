@@ -10567,14 +10567,18 @@
       }
 
       function deleteFile(fIdx) {
-        if (confirm("¿Deseas eliminar este PDF completo y sus hojas?")) {
-          if (!appFiles[fIdx]) return;
+        const fileObj = appFiles[fIdx];
+        if (!fileObj) return;
 
-          pushRowUndoState(`Eliminar fila "${appFiles[fIdx].name}"`);
+        const fileName = fileObj.name || "fila";
+        pushRowUndoState(`Eliminar fila "${fileName}"`);
 
-          appFiles.splice(fIdx, 1);
-          renderThumbnails(true, true);
-        }
+        appFiles.splice(fIdx, 1);
+        renderThumbnails(true, true);
+
+        showGlobalToast(
+          `🗑️ Fila "${fileName}" eliminada. Presiona Ctrl+Z para deshacer.`,
+        );
       }
 
       // Funciones para agregar hojas en blanco
