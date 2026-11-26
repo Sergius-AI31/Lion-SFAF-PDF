@@ -5812,6 +5812,88 @@
       </div>
     </div>
 
+    <!-- Modal universal de avisos y confirmaciones -->
+    <dialog
+      id="app-dialog"
+      aria-labelledby="app-dialog-title"
+      aria-describedby="app-dialog-message"
+      style="
+        position: fixed;
+        inset: 0;
+        margin: auto;
+        width: min(460px, calc(100vw - 32px));
+        max-height: 85vh;
+        overflow-y: auto;
+        background: #181825;
+        color: #cdd6f4;
+        border: 1px solid #45475a;
+        border-radius: 12px;
+        padding: 22px;
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.65);
+      "
+    >
+      <style>
+        #app-dialog::backdrop {
+          background: rgba(0, 0, 0, 0.75);
+          backdrop-filter: blur(3px);
+        }
+
+        #app-dialog button {
+          min-width: 105px;
+          padding: 9px 16px;
+        }
+      </style>
+
+      <h3
+        id="app-dialog-title"
+        style="
+          color: #89b4fa;
+          font-size: 1.15rem;
+          margin-bottom: 14px;
+        "
+      >
+        Aviso
+      </h3>
+
+      <p
+        id="app-dialog-message"
+        style="
+          color: #cdd6f4;
+          font-size: 0.9rem;
+          line-height: 1.6;
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+        "
+      ></p>
+
+      <div
+        style="
+          display: flex;
+          justify-content: flex-end;
+          gap: 10px;
+          margin-top: 22px;
+          padding-top: 14px;
+          border-top: 1px solid #313244;
+        "
+      >
+        <button
+          type="button"
+          class="btn-secondary"
+          id="app-dialog-cancel"
+        >
+          Cancelar
+        </button>
+
+        <button
+          type="button"
+          class="btn-danger"
+          id="app-dialog-confirm"
+        >
+          Confirmar
+        </button>
+      </div>
+    </dialog>
+
     <div id="global-toast"></div>
 
     <script>
@@ -6822,35 +6904,54 @@
         };
       }
 
-      function closeWorkspace(wsId) {
+      async function closeWorkspace(wsId) {
         if (workspaces.length <= 1) return;
 
         const targetWs = workspaces.find((w) => w.id === wsId);
-        const name = targetWs ? targetWs.name : "esta área";
+        if (!targetWs) return;
 
-        if (
-          confirm(`¿Deseas cerrar y eliminar "${name}" y todos sus archivos?`)
-        ) {
-          const idx = workspaces.findIndex((w) => w.id === wsId);
-          const wasActiveWorkspace = activeWorkspaceId === wsId;
+        const name = targetWs.name || "esta área";
 
-          workspaces.splice(idx, 1);
+        const confirmed = await appConfirm(
+          `¿Deseas cerrar y eliminar "${name}" y todos sus archivos?`,
+          "🗂️ Cerrar área de trabajo",
+        );
 
-          if (wasActiveWorkspace) {
-            activeWorkspaceId = workspaces[Math.max(0, idx - 1)].id;
-            appFiles = getActiveWorkspace().files;
-          }
+        if (!confirmed) return;
+        if (workspaces.length <= 1) return;
 
-          saveWorkspaceNamesQuick();
-          renderWorkspaceTabs();
+        const idx = workspaces.findIndex((w) => w.id === wsId);
+        if (idx === -1) return;
 
-          if (wasActiveWorkspace) {
-            renderThumbnails(false, true);
-          }
-
-          saveProjectToLocalStorageDebounced();
-          showGlobalToast(`🗑️ Área de trabajo eliminada.`);
+        const currentWs = getActiveWorkspace();
+        if (currentWs) {
+          currentWs.files = appFiles;
         }
+
+        const wasActiveWorkspace = activeWorkspaceId === wsId;
+
+        workspaces.splice(idx, 1);
+
+        rowUndoHistory = rowUndoHistory.filter(
+          (snapshot) => snapshot.workspaceId !== wsId,
+        );
+
+        if (wasActiveWorkspace) {
+          activeWorkspaceId = workspaces[Math.max(0, idx - 1)].id;
+          appFiles = getActiveWorkspace().files;
+          lastSelectedRef = null;
+        }
+
+        hideWorkspaceTooltip();
+        saveWorkspaceNamesQuick();
+        renderWorkspaceTabs();
+
+        if (wasActiveWorkspace) {
+          renderThumbnails(false, true);
+        }
+
+        saveProjectToLocalStorageDebounced();
+        showGlobalToast("🗑️ Área de trabajo eliminada.");
       }
 
       function clearAllSelections() {
@@ -7133,7 +7234,7 @@
         }
       }
 
-      function clearAllProject() {
+      async function clearAllProject() {
         const hasFiles =
           appFiles.length > 0 ||
           workspaces.some((w) => w.files && w.files.length > 0);
@@ -7148,10 +7249,12 @@
         }
 
         if (
-          confirm(
+          await appConfirm(
             "¿Estás seguro de que deseas eliminar TODAS las filas, restablecer las pestañas y vaciar la memoria local?",
+            "🗑️ Limpiar todo el proyecto",
           )
         ) {
+          rowUndoHistory = [];
           workspaces = [{ id: "ws_default", name: "Área 1", files: [] }];
           activeWorkspaceId = "ws_default";
           appFiles = [];
@@ -7188,6 +7291,118 @@
           globalToast.style.display = "none";
         }, 3500);
       }
+
+      // ==========================================
+      // SISTEMA UNIVERSAL DE AVISOS Y CONFIRMACIONES
+      // Compatible con Google Sites e iframe
+      // ==========================================
+
+      let appDialogQueue = Promise.resolve();
+
+      function openAppDialog(message, options = {}) {
+        const task = appDialogQueue.then(() => {
+          return new Promise((resolve) => {
+            const modal = document.getElementById("app-dialog");
+            const title = document.getElementById("app-dialog-title");
+            const messageLabel = document.getElementById("app-dialog-message");
+            const cancelBtn = document.getElementById("app-dialog-cancel");
+            const confirmBtn = document.getElementById("app-dialog-confirm");
+
+            const isConfirmation = options.confirmation === true;
+            const previousFocus = document.activeElement;
+
+            title.textContent = options.title || "Aviso";
+            title.style.color = isConfirmation ? "#f38ba8" : "#89b4fa";
+
+            messageLabel.textContent = String(message || "");
+
+            cancelBtn.style.display = isConfirmation
+              ? "inline-flex"
+              : "none";
+
+            confirmBtn.textContent = isConfirmation
+              ? "Sí, confirmar"
+              : "Entendido";
+
+            confirmBtn.className = isConfirmation
+              ? "btn-danger"
+              : "btn-success";
+
+            let finished = false;
+
+            const finish = (result) => {
+              if (finished) return;
+              finished = true;
+
+              confirmBtn.onclick = null;
+              cancelBtn.onclick = null;
+              modal.oncancel = null;
+              modal.onclose = null;
+
+              if (modal.open) {
+                modal.close();
+              }
+
+              if (previousFocus && previousFocus.isConnected) {
+                previousFocus.focus();
+              }
+
+              resolve(result);
+            };
+
+            confirmBtn.onclick = () => finish(true);
+            cancelBtn.onclick = () => finish(false);
+
+            modal.oncancel = (event) => {
+              event.preventDefault();
+              finish(false);
+            };
+
+            modal.onclose = () => finish(false);
+
+            modal.showModal();
+
+            if (isConfirmation) {
+              cancelBtn.focus();
+            } else {
+              confirmBtn.focus();
+            }
+          });
+        });
+
+        appDialogQueue = task.catch((error) => {
+          console.error("Error al mostrar el aviso:", error);
+        });
+
+        return task;
+      }
+
+      function appConfirm(message, title = "⚠️ Confirmar acción") {
+        return openAppDialog(message, {
+          title: title,
+          confirmation: true,
+        });
+      }
+
+      function appappAlert(message, title = "ℹ️ Aviso") {
+        return openAppDialog(message, {
+          title: title,
+          confirmation: false,
+        });
+      }
+
+      // Evitar que los atajos de Lion actúen detrás del modal.
+      window.addEventListener(
+        "keydown",
+        (event) => {
+          const modal = document.getElementById("app-dialog");
+
+          if (modal && modal.open) {
+            event.stopImmediatePropagation();
+          }
+        },
+        true,
+      );
 
       // Control de Miniaturas
       let thumbnailZoomRenderTimeout = null;
@@ -8796,7 +9011,7 @@
         const printWindow = window.open("", "_blank");
 
         if (!printWindow) {
-          alert("Por favor permite las ventanas emergentes para imprimir.");
+          appAlert("Por favor permite las ventanas emergentes para imprimir.");
           return;
         }
 
@@ -8842,7 +9057,7 @@
         const printWindow = window.open("", "_blank");
 
         if (!printWindow) {
-          alert("Por favor permite las ventanas emergentes para imprimir.");
+          appAlert("Por favor permite las ventanas emergentes para imprimir.");
           return;
         }
 
@@ -9247,7 +9462,7 @@
         const printWindow = window.open("", "_blank");
 
         if (!printWindow) {
-          alert("Por favor permite las ventanas emergentes para imprimir.");
+          appAlert("Por favor permite las ventanas emergentes para imprimir.");
           return;
         }
 
@@ -11384,7 +11599,7 @@
         });
       }
 
-      function deleteRenameSection(sectionId) {
+      async function deleteRenameSection(sectionId) {
         if (!renameConfigurationDraft) return;
 
         const section = renameConfigurationDraft.find(
@@ -11397,7 +11612,9 @@
           ? `¿Deseas eliminar la sección "${section.name}" y sus ${section.options.length} opciones?`
           : `¿Deseas eliminar la sección "${section.name}"?`;
 
-        if (!confirm(message)) return;
+        if (
+          !(await appConfirm(message, "🗑️ Eliminar sección"))
+        ) return;
 
         renameConfigurationDraft = renameConfigurationDraft.filter(
           (item) => item.id !== sectionId,
@@ -11439,7 +11656,7 @@
         });
       }
 
-      function deleteRenameOption(sectionId, optionId) {
+      async function deleteRenameOption(sectionId, optionId) {
         if (!renameConfigurationDraft) return;
 
         const section = renameConfigurationDraft.find(
@@ -11451,7 +11668,12 @@
         const option = section.options.find((item) => item.id === optionId);
         if (!option) return;
 
-        if (!confirm(`¿Deseas eliminar la opción "${option.name}"?`)) return;
+        if (
+          !(await appConfirm(
+            `¿Deseas eliminar la opción "${option.name}"?`,
+            "🗑️ Eliminar opción",
+          ))
+        ) return;
 
         section.options = section.options.filter(
           (item) => item.id !== optionId,
@@ -11584,7 +11806,7 @@
         );
 
         if (!normalizedConfiguration) {
-          alert(
+          appAlert(
             "Debes conservar al menos una sección con un nombre válido.",
           );
           return;
@@ -11604,11 +11826,12 @@
         );
       }
 
-      function resetRenameConfiguration() {
+      async function resetRenameConfiguration() {
         if (
-          !confirm(
+          !(await appConfirm(
             "¿Deseas eliminar la personalización y restaurar la lista base?",
-          )
+            "🔄 Restaurar lista base",
+          ))
         ) {
           return;
         }
@@ -11731,7 +11954,7 @@
           const value = folioInput.value.replace(/\s+/g, " ").trim();
 
           if (/^\d+$/.test(value) && value.length > 0 && value.length < 5) {
-            alert("El folio debe tener al menos 5 dígitos. También puedes escribir el nombre del cliente.");
+            appAlert("El folio debe tener al menos 5 dígitos. También puedes escribir el nombre del cliente.");
             folioInput.focus();
             return;
           }
@@ -11873,7 +12096,7 @@
         if (fIdx !== null && (!appFiles[fIdx] || !appFiles[fIdx].pages.length))
           return;
         if (fIdx === null && totalPages === 0) {
-          alert("Agrega al menos una página para exportar.");
+          appAlert("Agrega al menos una página para exportar.");
           return;
         }
         currentExportTarget = fIdx;
@@ -12565,7 +12788,7 @@
           e.stopPropagation();
 
           if (!storedSignatureCanvas) {
-            alert(
+            appAlert(
               "Primero debes crear o adjuntar una firma.",
             );
             return;
@@ -18072,7 +18295,7 @@
             JSON.stringify(stampTemplates),
           );
         } catch (e) {
-          alert(
+          appAlert(
             "No se pudo guardar la biblioteca de sellos. Si agregaste imágenes muy grandes, intenta usar archivos más ligeros o elimina sellos que ya no necesites.",
           );
         }
@@ -18433,7 +18656,7 @@
         const name = document.getElementById("stamp-name").value.trim();
 
         if (!name) {
-          alert("Escribe un nombre para identificar el sello.");
+          appAlert("Escribe un nombre para identificar el sello.");
           return null;
         }
 
@@ -18471,14 +18694,14 @@
           !template.includeDate &&
           !template.includeTime
         ) {
-          alert(
+          appAlert(
             "Escribe el texto del sello o activa al menos Fecha dinámica u Hora dinámica.",
           );
           return null;
         }
 
         if (type === "image" && !template.imageDataUrl) {
-          alert("Adjunta una imagen para el sello.");
+          appAlert("Adjunta una imagen para el sello.");
           return null;
         }
 
@@ -18777,11 +19000,12 @@
           deleteBtn.className = "btn-danger";
           deleteBtn.style.cssText = "padding:4px 7px; font-size:0.75rem;";
           deleteBtn.innerText = "Eliminar";
-          deleteBtn.onclick = () => {
+          deleteBtn.onclick = async () => {
             if (
-              !confirm(
+              !(await appConfirm(
                 `¿Eliminar el sello "${template.name}" de la biblioteca? Los sellos ya colocados en documentos no se borrarán.`,
-              )
+                "🏷️ Eliminar sello",
+              ))
             ) {
               return;
             }
@@ -19689,10 +19913,11 @@
       };
 
       // Botón Eliminar firma almacenada
-      document.getElementById("btn-delete-stored-sig").onclick = () => {
+      document.getElementById("btn-delete-stored-sig").onclick = async () => {
         if (
-          confirm(
+          await appConfirm(
             "¿Estás seguro de que deseas borrar la firma guardada de la memoria local?",
+            "✍️ Eliminar firma guardada",
           )
         ) {
           storedSignatureCanvas = null;
@@ -20061,7 +20286,7 @@
       // Descargar Firma como FIRMA.png
       document.getElementById("btn-download-sig-png").onclick = () => {
         if (sigStudioCanvas.width === 0) {
-          alert("Primero carga o prepara una firma.");
+          appAlert("Primero carga o prepara una firma.");
           return;
         }
         const link = document.createElement("a");
