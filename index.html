@@ -5779,6 +5779,39 @@
       <span>Suelta para Agregar</span>
     </div>
 
+    <div class="modal" id="delete-row-modal">
+      <div
+        class="modal-content"
+        style="width: 420px; height: auto; margin: auto"
+      >
+        <h3 style="color: #f38ba8; font-size: 1.1rem">
+          🗑️ Eliminar fila
+        </h3>
+        <p style="color: #cdd6f4; font-size: 0.9rem; line-height: 1.5">
+          ¿Deseas eliminar este PDF completo y todas sus hojas?
+        </p>
+        <p
+          id="delete-row-name"
+          style="color: #a6adc8; font-size: 0.85rem; overflow-wrap: anywhere"
+        ></p>
+        <div
+          style="
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 8px;
+          "
+        >
+          <button type="button" class="btn-secondary" id="btn-cancel-delete-row">
+            Cancelar
+          </button>
+          <button type="button" class="btn-danger" id="btn-confirm-delete-row">
+            Sí, eliminar
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div id="global-toast"></div>
 
     <script>
@@ -10570,15 +10603,34 @@
         const fileObj = appFiles[fIdx];
         if (!fileObj) return;
 
-        const fileName = fileObj.name || "fila";
-        pushRowUndoState(`Eliminar fila "${fileName}"`);
+        const modal = document.getElementById("delete-row-modal");
+        const nameLabel = document.getElementById("delete-row-name");
+        const cancelBtn = document.getElementById("btn-cancel-delete-row");
+        const confirmBtn = document.getElementById("btn-confirm-delete-row");
 
-        appFiles.splice(fIdx, 1);
-        renderThumbnails(true, true);
+        if (!modal || !nameLabel || !cancelBtn || !confirmBtn) return;
 
-        showGlobalToast(
-          `🗑️ Fila "${fileName}" eliminada. Presiona Ctrl+Z para deshacer.`,
-        );
+        nameLabel.textContent = fileObj.name || "Fila sin nombre";
+        modal.style.display = "flex";
+
+        cancelBtn.onclick = () => {
+          modal.style.display = "none";
+        };
+
+        confirmBtn.onclick = () => {
+          const currentFile = appFiles[fIdx];
+          modal.style.display = "none";
+          if (!currentFile) return;
+
+          const fileName = currentFile.name || "fila";
+          pushRowUndoState(`Eliminar fila "${fileName}"`);
+          appFiles.splice(fIdx, 1);
+          renderThumbnails(true, true);
+
+          showGlobalToast(
+            `🗑️ Fila "${fileName}" eliminada. Presiona Ctrl+Z para deshacer.`,
+          );
+        };
       }
 
       // Funciones para agregar hojas en blanco
@@ -10612,14 +10664,37 @@
       }
 
       function deleteFile(fIdx) {
-        if (confirm("¿Deseas eliminar este PDF completo y sus hojas?")) {
-          if (!appFiles[fIdx]) return;
+        const fileObj = appFiles[fIdx];
+        if (!fileObj) return;
 
-          pushRowUndoState(`Eliminar fila "${appFiles[fIdx].name}"`);
+        const modal = document.getElementById("delete-row-modal");
+        const nameLabel = document.getElementById("delete-row-name");
+        const cancelBtn = document.getElementById("btn-cancel-delete-row");
+        const confirmBtn = document.getElementById("btn-confirm-delete-row");
 
+        if (!modal || !nameLabel || !cancelBtn || !confirmBtn) return;
+
+        nameLabel.textContent = fileObj.name || "Fila sin nombre";
+        modal.style.display = "flex";
+
+        cancelBtn.onclick = () => {
+          modal.style.display = "none";
+        };
+
+        confirmBtn.onclick = () => {
+          const currentFile = appFiles[fIdx];
+          modal.style.display = "none";
+          if (!currentFile) return;
+
+          const fileName = currentFile.name || "fila";
+          pushRowUndoState(`Eliminar fila "${fileName}"`);
           appFiles.splice(fIdx, 1);
           renderThumbnails(true, true);
-        }
+
+          showGlobalToast(
+            `🗑️ Fila "${fileName}" eliminada. Presiona Ctrl+Z para deshacer.`,
+          );
+        };
       }
 
       // Funciones para agregar hojas en blanco
